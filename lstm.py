@@ -1,6 +1,8 @@
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
+from keras.layers import Dropout
+import keras
 from sklearn.metrics import mean_squared_error
 from matplotlib import pyplot as plt
 import math
@@ -13,9 +15,9 @@ import mackey_glass
 
 def get_data():
     generator = mackey_glass.MackeyGlassGenerator(mu=0.1, beta=0.2, tau=30, n=9.65)
-    series = generator.generate_series(50000)
+    series = generator.generate_series(5000)
 
-    cut_step = 48000
+    cut_step = 4000
 
     train_series = pd.DataFrame(series[0:cut_step:1])  # .transpose()
     test_series = pd.DataFrame(series[cut_step:-1:1])  # .transpose()
@@ -30,23 +32,38 @@ def fit_lstm(batch_size, train_data):
     x, y = train_data[:, 0:-1], train_data[:, -1]
     x = x.reshape(x.shape[0], 1, x.shape[1])
 
+    print('shape of x = %s' % str(x.shape))
+    print('shape of y = %s' % str(y.shape))
+
+    dropout_rate = 0.5
+
     model = Sequential()
-    model.add(LSTM(units=10,
-              activation='tanh',
-              stateful=True,
-              batch_input_shape=(batch_size, x.shape[1], x.shape[2])))
-    model.add(Dense(units=20, activation='relu'))
-    model.add(Dense(units=10, activation='relu'))
-    model.add(Dense(units=5, activation='relu'))
-    model.add(Dense(units=1))
-    model.compile(optimizer='adam', loss='mse')
+    model.add(LSTM(units=50,
+                   activation='tanh',
+                   stateful=True,
+                   batch_input_shape=(batch_size, x.shape[1], x.shape[2]),
+                   return_sequences=True))
+    model.add(Dropout(rate=dropout_rate))
+    model.add(LSTM(units=30,
+                   activation='tanh',
+                   stateful=True,
+                   return_sequences=False))
+    model.add(Dropout(rate=dropout_rate))
+    model.add(Dense(units=1, activation='linear'))
+
+    optimizer = keras.optimizers.SGD(lr=0.1, momentum=0.9)
+
+    model.compile(optimizer=optimizer, loss='mse')
 
     epochs = 10
+    try:
+        for epoch in range(0, epochs):
+            model.fit(x=x, y=y, epochs=1, batch_size=batch_size, verbose=1, shuffle=False)
+            model.reset_states()
+            print('epoch = %i' % epoch)
 
-    for epoch in range(0, epochs):
-        model.fit(x=x, y=y, epochs=1, batch_size=batch_size, verbose=1, shuffle=False)
-        model.reset_states()
-        print('epoch = %i' % epoch)
+    except KeyboardInterrupt:
+        pass
 
     return model
 
@@ -73,15 +90,15 @@ def main():
 
     print('train series shape = %s' % str(train_series.shape))
 
-    train_data = timeseries_to_supervised(train_series).values
-    test_data = timeseries_to_supervised(test_series).values
+    train_data = timeseries_to_supervised(train_series, lag=1).values
+    test_data = timeseries_to_supervised(test_series, lag=1).values
 
     model = fit_lstm(batch_size=1, train_data=train_data)
 
     # forecast the entire training dataset to build up state for forecasting
     x, y = train_data[:, 0:-1], train_data[:, -1]
     x = x.reshape(x.shape[0], 1, x.shape[1])
-    model.predict(x=x, batch_size=1)
+    model.predict(x=x, batch_size=1, verbose=1)
 
     # walk-forward validation on the test data
     predictions = []
@@ -94,15 +111,27 @@ def main():
         # store forecast
         predictions.append(yhat)
 
-        # expected = raw_values[len(train) + i + 1]
-        # print('step=%d, predicted=%f, expected=%f' % (i + 1, yhat, expected))
+    predictions_stateless = []
+
+    for i in range(len(test_data)):
+        # make one-step forecast
+        x, y = test_data[i, 0:-1], test_data[i, -1]
+        yhat = forecast_lstm(model, 1, x)
+
+        # store forecast
+        predictions_stateless.append(yhat)
 
     # report performance
     rmse = math.sqrt(mean_squared_error(test_series, predictions))
-    print('Test RMSE: %.3f' % rmse)
+    print('Test RMSE stateful: %.3f' % rmse)
+
+    rmse = math.sqrt(mean_squared_error(test_series, predictions))
+    print('Test RMSE stateless: %.3f' % rmse)
     # line plot of observed vs predicted
     plt.plot(test_series, label='test series')
     plt.plot(predictions, label='predictions')
+    plt.plot(predictions_stateless, label='predictions stateless')
+    plt.legend()
     plt.show()
 
 
