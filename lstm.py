@@ -12,10 +12,10 @@ import mackey_glass
 
 
 def get_data():
-    generator = mackey_glass.MackeyGlassGenerator()
+    generator = mackey_glass.MackeyGlassGenerator(mu=0.1, beta=0.2, tau=30, n=9.65)
     series = generator.generate_series(20000)
 
-    cut_step = 15000
+    cut_step = 18000
 
     train_series = pd.DataFrame(series[0:cut_step:1])  # .transpose()
     test_series = pd.DataFrame(series[cut_step:-1:1])  # .transpose()
@@ -33,19 +33,22 @@ def fit_lstm(batch_size, train_data):
     x = x.reshape(x.shape[0], 1, x.shape[1])
 
     model = Sequential()
-    model.add(LSTM(units=100,
+    model.add(LSTM(units=10,
               activation='tanh',
               stateful=True,
               batch_input_shape=(batch_size, x.shape[1], x.shape[2])))
-
-    model.add(Dense(1))
+    model.add(Dense(units=20, activation='relu'))
+    model.add(Dense(units=10, activation='relu'))
+    model.add(Dense(units=5, activation='relu'))
+    model.add(Dense(units=1))
     model.compile(optimizer='adam', loss='mse')
 
-    epochs = 50
+    epochs = 10
 
     for epoch in range(0, epochs):
         model.fit(x=x, y=y, epochs=1, batch_size=batch_size, verbose=1, shuffle=False)
         model.reset_states()
+        print('epoch = %i' % epoch)
 
     return model
 
@@ -78,16 +81,16 @@ def main():
     model = fit_lstm(batch_size=1, train_data=train_data)
 
     # forecast the entire training dataset to build up state for forecasting
-    train_reshaped = train_series.values[:, 0:-1]
-    train_reshaped = train_reshaped.reshape(train_reshaped.shape[0], 1, train_reshaped.shape[1])
-    model.predict(x=train_reshaped, batch_size=1)
+    x, y = train_data[:, 0:-1], train_data[:, -1]
+    x = x.reshape(x.shape[0], 1, x.shape[1])
+    model.predict(x=x, batch_size=1)
 
     # walk-forward validation on the test data
     predictions = []
 
-    for i in range(test_data.shape[1]):
+    for i in range(len(test_data)):
         # make one-step forecast
-        x, y = test_data.values[i, 0:-1], test_data.values[i, -1]
+        x, y = test_data[i, 0:-1], test_data[i, -1]
         yhat = forecast_lstm(model, 1, x)
 
         # store forecast
@@ -100,8 +103,8 @@ def main():
     rmse = math.sqrt(mean_squared_error(test_series, predictions))
     print('Test RMSE: %.3f' % rmse)
     # line plot of observed vs predicted
-    plt.plot(test_series)
-    plt.plot(predictions)
+    plt.plot(test_series, label='test series')
+    plt.plot(predictions, label='predictions')
     plt.show()
 
 
