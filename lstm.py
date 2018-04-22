@@ -13,9 +13,9 @@ import mackey_glass
 
 def get_data():
     generator = mackey_glass.MackeyGlassGenerator(mu=0.1, beta=0.2, tau=30, n=9.65)
-    series = generator.generate_series(20000)
+    series = generator.generate_series(50000)
 
-    cut_step = 18000
+    cut_step = 48000
 
     train_series = pd.DataFrame(series[0:cut_step:1])  # .transpose()
     test_series = pd.DataFrame(series[cut_step:-1:1])  # .transpose()
@@ -24,10 +24,8 @@ def get_data():
 
 
 def fit_lstm(batch_size, train_data):
-    # TODO something wrong with array dimensions and batch_input_shape :'(
-
-    print('train data shape = %s' % str(train_data.shape))
-    print(train_data)
+    # print('train data shape = %s' % str(train_data.shape))
+    # print(train_data)
 
     x, y = train_data[:, 0:-1], train_data[:, -1]
     x = x.reshape(x.shape[0], 1, x.shape[1])
