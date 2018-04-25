@@ -2,6 +2,7 @@ from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
 from keras.layers import Dropout
+from keras import regularizers
 import keras
 from sklearn.metrics import mean_squared_error
 from matplotlib import pyplot as plt
@@ -20,9 +21,22 @@ def get_data():
     cut_step = 4000
 
     train_series = pd.DataFrame(series[0:cut_step:1])  # .transpose()
-    test_series = pd.DataFrame(series[cut_step:-1:1])  # .transpose()
+    test_series = pd.DataFrame(series[cut_step::1])  # .transpose()
 
     return train_series, test_series
+
+
+def persistence_forecast(time_series):
+    """
+    Creates a persistence forecast for the passed in time series.
+
+    Args:
+        time_series (DataFrame):
+
+    Returns:
+        DataFrame
+    """
+    return time_series.shift(1)
 
 
 def fit_lstm(batch_size, train_data):
@@ -35,27 +49,34 @@ def fit_lstm(batch_size, train_data):
     print('shape of x = %s' % str(x.shape))
     print('shape of y = %s' % str(y.shape))
 
-    dropout_rate = 0.5
+    # be careful with altering network architecture, prone to failure with high learning rates and dropout
+    dropout_rate = 0.25
+
+    regularizer = regularizers.l1(0.185)
 
     model = Sequential()
-    model.add(LSTM(units=50,
+    model.add(LSTM(units=10,
                    activation='tanh',
                    stateful=True,
                    batch_input_shape=(batch_size, x.shape[1], x.shape[2]),
-                   return_sequences=True))
-    model.add(Dropout(rate=dropout_rate))
-    model.add(LSTM(units=30,
-                   activation='tanh',
-                   stateful=True,
-                   return_sequences=False))
-    model.add(Dropout(rate=dropout_rate))
+                   return_sequences=False,  # Set to true when using consecutive LSTM layers
+                   recurrent_regularizer=regularizer))
+    # model.add(Dropout(rate=dropout_rate))
+    # model.add(LSTM(units=30,
+    #                activation='tanh',
+    #                stateful=True,
+    #                return_sequences=False))
+    # model.add(Dropout(rate=dropout_rate))
+    # model.add(Dense(units=10, activation='relu', activity_regularizer=regularizer, kernel_regularizer=regularizer))
+    # model.add(Dropout(rate=dropout_rate))
+    # model.add(Dense(units=5, activation='relu', activity_regularizer=regularizer, kernel_regularizer=regularizer))
     model.add(Dense(units=1, activation='linear'))
 
-    optimizer = keras.optimizers.SGD(lr=0.1, momentum=0.9)
+    optimizer = keras.optimizers.SGD(lr=0.01, momentum=0.0)
 
     model.compile(optimizer=optimizer, loss='mse')
 
-    epochs = 10
+    epochs = 5
     try:
         for epoch in range(0, epochs):
             model.fit(x=x, y=y, epochs=1, batch_size=batch_size, verbose=1, shuffle=False)
@@ -121,15 +142,22 @@ def main():
         # store forecast
         predictions_stateless.append(yhat)
 
-    # report performance
-    rmse = math.sqrt(mean_squared_error(test_series, predictions))
-    print('Test RMSE stateful: %.3f' % rmse)
+    persistence_predictions = persistence_forecast(test_series).fillna(value=0).values
 
-    rmse = math.sqrt(mean_squared_error(test_series, predictions))
-    print('Test RMSE stateless: %.3f' % rmse)
+    # report performance
+    test_rmse = math.sqrt(mean_squared_error(test_series, predictions))
+    print('Test RMSE stateful: %.3f' % test_rmse)
+
+    stateless_rmse = math.sqrt(mean_squared_error(test_series, predictions_stateless))
+    print('Test RMSE stateless: %.3f' % stateless_rmse)
+
+    persistence_rmse = math.sqrt(mean_squared_error(test_series, persistence_predictions))
+    print('Test RMSE persistence: %.3f' % persistence_rmse)
+
     # line plot of observed vs predicted
     plt.plot(test_series, label='test series')
     plt.plot(predictions, label='predictions')
+    plt.plot(persistence_predictions, label='persistence forecast')
     plt.plot(predictions_stateless, label='predictions stateless')
     plt.legend()
     plt.show()
